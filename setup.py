@@ -53,6 +53,7 @@ class PostInstallCommand(install):
         except ImportError:
             subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'spacy'])
         try:
+            import spacy
             spacy.load('en_core_web_sm')
         except OSError:
             subprocess.run([sys.executable, '-m', 'spacy', 'download', 'en_core_web_sm'])
