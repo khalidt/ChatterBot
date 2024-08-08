@@ -1,5 +1,7 @@
 from chatterbot.storage import StorageAdapter
-
+from sqlalchemy import create_engine, inspect, event
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import InvalidRequestError
 
 class SQLStorageAdapter(StorageAdapter):
     """
@@ -19,12 +21,9 @@ class SQLStorageAdapter(StorageAdapter):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        from sqlalchemy import create_engine
-        from sqlalchemy.orm import sessionmaker
+        self.database_uri = kwargs.get('database_uri', None)
 
-        self.database_uri = kwargs.get('database_uri', False)
-
-        # None results in a sqlite in-memory database as the default
+        # Default to an in-memory SQLite database if no URI is provided
         if self.database_uri is None:
             self.database_uri = 'sqlite://'
 
@@ -32,18 +31,19 @@ class SQLStorageAdapter(StorageAdapter):
         if not self.database_uri:
             self.database_uri = 'sqlite:///db.sqlite3'
 
-        self.engine = create_engine(self.database_uri, convert_unicode=True)
+        self.engine = create_engine(self.database_uri)
 
         if self.database_uri.startswith('sqlite://'):
-            from sqlalchemy.engine import Engine
-            from sqlalchemy import event
-
-            @event.listens_for(Engine, 'connect')
+            @event.listens_for(self.engine, 'connect')
             def set_sqlite_pragma(dbapi_connection, connection_record):
-                dbapi_connection.execute('PRAGMA journal_mode=WAL')
-                dbapi_connection.execute('PRAGMA synchronous=NORMAL')
+                cursor = dbapi_connection.cursor()
+                cursor.execute('PRAGMA journal_mode=WAL')
+                cursor.execute('PRAGMA synchronous=NORMAL')
+                cursor.close()
 
-        if not self.engine.dialect.has_table(self.engine, 'Statement'):
+        # Use SQLAlchemy's inspect method to check for table existence
+        inspector = inspect(self.engine)
+        if not inspector.has_table('Statement'):
             self.create_database()
 
         self.Session = sessionmaker(bind=self.engine, expire_on_commit=True)
@@ -57,7 +57,7 @@ class SQLStorageAdapter(StorageAdapter):
 
     def get_tag_model(self):
         """
-        Return the conversation model.
+        Return the tag model.
         """
         from chatterbot.ext.sqlalchemy_app.models import Tag
         return Tag
@@ -90,9 +90,9 @@ class SQLStorageAdapter(StorageAdapter):
         query = session.query(Statement).filter_by(text=statement_text)
         record = query.first()
 
-        session.delete(record)
-
-        self._session_finish(session)
+        if record:
+            session.delete(record)
+            self._session_finish(session, statement_text=statement_text)
 
     def filter(self, **kwargs):
         """
@@ -117,8 +117,8 @@ class SQLStorageAdapter(StorageAdapter):
         persona_not_startswith = kwargs.pop('persona_not_startswith', None)
         search_text_contains = kwargs.pop('search_text_contains', None)
 
-        # Convert a single sting into a list if only one tag is provided
-        if type(tags) == str:
+        # Convert a single string into a list if only one tag is provided
+        if isinstance(tags, str):
             tags = [tags]
 
         if len(kwargs) == 0:
@@ -158,7 +158,6 @@ class SQLStorageAdapter(StorageAdapter):
             )
 
         if order_by:
-
             if 'created_at' in order_by:
                 index = order_by.index('created_at')
                 order_by[index] = Statement.created_at.asc()
@@ -229,7 +228,6 @@ class SQLStorageAdapter(StorageAdapter):
         create_tags = {}
 
         for statement in statements:
-
             statement_data = statement.serialize()
             tag_data = statement_data.pop('tags', [])
 
@@ -257,10 +255,10 @@ class SQLStorageAdapter(StorageAdapter):
                 else:
                     # Create the tag if it does not exist
                     tag = Tag(name=tag_name)
-
                     create_tags[tag_name] = tag
 
                 statement_model_object.tags.append(tag)
+
             create_statements.append(statement_model_object)
 
         session.add_all(create_statements)
@@ -361,7 +359,6 @@ class SQLStorageAdapter(StorageAdapter):
         Base.metadata.create_all(self.engine)
 
     def _session_finish(self, session, statement_text=None):
-        from sqlalchemy.exc import InvalidRequestError
         try:
             session.commit()
         except InvalidRequestError:
