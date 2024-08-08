@@ -6,12 +6,14 @@ import os
 import sys
 import platform
 import configparser
+import subprocess
 from setuptools import setup
+from setuptools.command.install import install
 
 
 if sys.version_info[0] < 3:
     raise Exception(
-        'You are tying to install ChatterBot on Python version {}.\n'
+        'You are trying to install ChatterBot on Python version {}.\n'
         'Please install ChatterBot in Python 3 instead.'.format(
             platform.python_version()
         )
@@ -42,6 +44,18 @@ with open('requirements.txt') as requirements:
         else:
             REQUIREMENTS.append(requirement)
 
+class PostInstallCommand(install):
+    """Post-installation for installation mode."""
+    def run(self):
+        install.run(self)
+        try:
+            import spacy
+        except ImportError:
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'spacy'])
+        try:
+            spacy.load('en_core_web_sm')
+        except OSError:
+            subprocess.run([sys.executable, '-m', 'spacy', 'download', 'en_core_web_sm'])
 
 setup(
     name='ChatterBot',
@@ -69,7 +83,7 @@ setup(
     include_package_data=True,
     install_requires=REQUIREMENTS,
     dependency_links=DEPENDENCIES,
-    python_requires='>=3.4, <=3.8',
+    python_requires='>=3.4, <=3.11',
     license='BSD',
     zip_safe=True,
     platforms=['any'],
@@ -91,7 +105,12 @@ setup(
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
         'Programming Language :: Python :: 3 :: Only',
     ],
-    test_suite='tests'
+    test_suite='tests',
+    cmdclass={
+        'install': PostInstallCommand,
+    },
 )
