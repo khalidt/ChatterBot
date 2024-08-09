@@ -1,4 +1,4 @@
-mathparse>=0.1,<0.2
-python-dateutil<=2.9
-sqlalchemy<=2.0.32
+mathparse
+python-dateutil
+sqlalchemy
 pytz
